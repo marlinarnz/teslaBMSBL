@@ -4,6 +4,7 @@
 #include "Logger.hpp"
 #include "Oled.hpp"
 #include "Controller.hpp"
+#include "CanManager.hpp"
 #include <Snooze.h>
 
 #define CPU_RESTART_ADDR (uint32_t *)0xE000ED0C
@@ -24,16 +25,15 @@
 */
 
 //instantiate all objects
-static Controller controller_inst;        ///< The controller is responsible for orchestrating all major functions of the BMS.
-static Cons cons_inst(&controller_inst);  ///< The console is a 2 way user interface available on usb serial port at baud 115200.
-static Oled oled_inst(&controller_inst);  ///< The oled is a 1 way user interface displaying the most critical information.
+static Controller controller_inst;             ///< The controller is responsible for orchestrating all major functions of the BMS.
+static Cons cons_inst(&controller_inst);       ///< The console is a 2 way user interface available on usb serial port at baud 115200.
+static Oled oled_inst(&controller_inst);       ///< The oled is a 1 way user interface displaying the most critical information.
+static CanManager can_inst(&controller_inst);  ///< The CanManager reads and writes messages on the CAN bus
 
 // Load drivers
-//SnoozeTouch touch;
-SnoozeDigital digital;
-SnoozeTimer timer;
-SnoozeUSBSerial usbSerial;
-
+SnoozeDigital digital; // wake up by digital pin
+SnoozeTimer timer; // wake up by timer
+SnoozeUSBSerial usbSerial; // wake up through USB connection
 // install drivers to a SnoozeBlock
 SnoozeBlock config(timer, digital, usbSerial);
 
@@ -45,10 +45,12 @@ void setup() {
   pinMode(INL_SOFT_RST, INPUT_PULLUP);
   cons_inst.printMenu();
   LOG_CONSOLE("BMS> ");
+  // Start CAN communication
+  can_inst.init();
 }
 
 /////////////////////////////////////////////////
-/// Holds all the code that runs every 50ms.
+/// Holds all the code that runs every period
 /////////////////////////////////////////////////
 void phase1main() {
   if (digitalRead(INL_SOFT_RST) == LOW) {
@@ -59,16 +61,17 @@ void phase1main() {
 }
 
 /////////////////////////////////////////////////
-/// Holds code that runs every 100ms.
+/// Holds code that runs every two periods
 /////////////////////////////////////////////////
 void phase1A() {
   controller_inst.doController();
 }
 
 /////////////////////////////////////////////////
-/// Holds code that runs every 100ms.
+/// Holds code that runs every two periods
 /////////////////////////////////////////////////
 void phase1B() {
+  can_inst.doCan();
   oled_inst.doOled();
 }
 
@@ -77,8 +80,7 @@ void phase1B() {
 /////////////////////////////////////////////////
 void loop()
 {
-  uint32_t starttime, endtime, delaytime, timespent;
-  uint32_t period = 200;
+  uint32_t starttime, endtime, delaytime, timespent, period;
   bool phaseA = true;
   //int who;
 
@@ -93,10 +95,9 @@ void loop()
       phase1B();
     phaseA = !phaseA;
 
-    //get loop period from controller
-    //digital.pinMode(INH_RUN, INPUT_PULLDOWN, RISING);//pin, mode, type
     digital.pinMode(INL_SOFT_RST, INPUT_PULLUP, FALLING);//pin, mode, type
     
+    //get loop period from controller
     period = controller_inst.getPeriodMillis();
 
     endtime = millis();
@@ -112,8 +113,8 @@ void loop()
       delaytime = period - timespent;
     }
 
-    //sleep board instead of delay
-    if (delaytime > 200) {
+    //sleep board instead of delay, if not in active state
+    if (delaytime > LOOP_PERIOD_ACTIVE_MS) {
       timer.setTimer(delaytime);// milliseconds
       //who = Snooze.deepSleep( config );
       (void)Snooze.deepSleep( config );
