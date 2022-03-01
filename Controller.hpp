@@ -8,7 +8,7 @@
 class Controller {
   public:
     enum ControllerState {
-      INIT, STANDBY, PRE_CHARGE, CHARGING, RUN
+      INIT, STANDBY, PRE_CHARGE, CHARGING, POST_CHARGE, RUN
     };
     void doController();
     Controller();
@@ -19,7 +19,7 @@ class Controller {
 
     //faults
     bool faultModuleLoop;
-    bool faultBatMon;
+    bool faultCANbus;
     bool faultBMSSerialComms;
     bool faultBMSOV;
     bool faultBMSUV;
@@ -29,10 +29,11 @@ class Controller {
     bool fault12VBatUV;
     bool faultWatSen1;
     bool faultWatSen2;
+    bool faultHeatLoop;
 
     //sticky faults
     bool sFaultModuleLoop;
-    bool sFaultBatMon;
+    bool sFaultCANbus;
     bool sFaultBMSSerialComms;
     bool sFaultBMSOV;
     bool sFaultBMSUV;
@@ -42,10 +43,11 @@ class Controller {
     bool sFault12VBatUV;
     bool sFaultWatSen1;
     bool sFaultWatSen2;
+    bool sFaultHeatLoop;
 
     //faults debounce counters (DB)
     uint8_t faultModuleLoopDB;
-    uint8_t faultBatMonDB;
+    uint8_t faultCANbusDB;
     uint8_t faultBMSSerialCommsDB;
     uint8_t faultBMSOVDB;
     uint8_t faultBMSUVDB;
@@ -55,10 +57,11 @@ class Controller {
     uint8_t fault12VBatUVDB;
     uint8_t faultWatSen1DB;
     uint8_t faultWatSen2DB;
+    uint8_t faultHeatLoopDB;
 
     //faults time stamps (TS)
     uint32_t faultModuleLoopTS;
-    uint32_t faultBatMonTS;
+    uint32_t faultCANbusTS;
     uint32_t faultBMSSerialCommsTS;
     uint32_t faultBMSOVTS;
     uint32_t faultBMSUVTS;
@@ -68,6 +71,7 @@ class Controller {
     uint32_t fault12VBatUVTS;
     uint32_t faultWatSen1TS;
     uint32_t faultWatSen2TS;
+    uint32_t faultHeatLoopTS;
 
     bool isFaulted;
     bool stickyFaulted;
@@ -80,6 +84,7 @@ class Controller {
     bool chargerInhibit;
     bool powerLimiter;
     bool dc2dcON_H;
+    bool heatingON_H;
     uint32_t period;
 
     //run-time functions
@@ -96,6 +101,7 @@ class Controller {
     void standby();
     void pre_charge();
     void charging();
+    void post_charge();
     void run();
 
 };

@@ -16,6 +16,19 @@ BMSModuleManager::BMSModuleManager()
   histHighestCellDiffVolt = 0.0f;
   lineFault = false;
   pstring = 1;
+  numFoundModules = 0;
+}
+
+/////////////////////////////////////////////////
+/// \brief Return the number of cells in series of the whole pack
+/////////////////////////////////////////////////
+int BMSModuleManager::seriesCells()
+{
+  if (numFoundModules <= 0)
+  {
+    renumberBoardIDs();
+  }
+  return numFoundModules * 6;
 }
 
 /////////////////////////////////////////////////
@@ -516,13 +529,8 @@ void BMSModuleManager::printPackSummary()
   LOG_CONSOLE("\n=====================================================================\n");
   LOG_CONSOLE("\nModules: %i    Voltage: %.2fV   Avg Cell Voltage: %.2fV     Avg Temp: %.2fC\n", numFoundModules,
               getPackVoltage(), getAvgCellVolt(), getAvgTemperature());
-  LOG_CONSOLE("INL_EVSE_DISC: %d\n", digitalRead(INL_EVSE_DISC));
   LOG_CONSOLE("INH_RUN: %d\n", digitalRead(INH_RUN));
   LOG_CONSOLE("INH_CHARGING: %d\n", digitalRead(INH_CHARGING));
-  
-  //testing scafolding
-  LOG_CONSOLE("getHighCellVolt() < CHARGER_CYCLE_V_SETPOINT    : %f < %f?\n" , getHighCellVolt(),CHARGER_CYCLE_V_SETPOINT);
-  LOG_CONSOLE("getHighCellVolt() < MAX_CHARGE_V_SETPOINT    : %f < %f?\n" , getHighCellVolt(),MAX_CHARGE_V_SETPOINT);
 }
 
 /////////////////////////////////////////////////

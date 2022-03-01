@@ -5,11 +5,25 @@
 /////////////////////////////////////////////////
 void Controller::doController() {
   static int ticks = 0;
-  static unsigned int bat12Vcyclestart = 0;
   static int standbyTicks = 1; //1 because ticks slow down
   const int stateticks = 4;
-  bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
 
+  // 12V battery monitoring
+  bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
+  if (dc2dcON_H == 0 && bat12vVoltage < DC2DC_ON_V_SETPOINT) {
+    dc2dcON_H = 1;
+  } else if ( dc2dcON_H == 1 && bat12vVoltage >= DC2DC_OFF_V_SETPOINT) {
+    dc2dcON_H = 0;
+  }
+
+  // Battery pack heating loop
+  if (!heatingON_H && bms.getAvgTemperature() < HEATING_T_SETPOINT) {
+    heatingON_H = 1;
+  } else if (heatingON_H && bms.getAvgTemperature() >= HEATING_T_SETPOINT) {
+    heatingON_H = 0;
+  }
+
+  // Update modules and faults
   if (state != INIT) syncModuleDataObjects();
 
   //figure out state transition
@@ -29,24 +43,12 @@ void Controller::doController() {
         state = PRE_CHARGE;
       }
 #else
-      if (dc2dcON_H == 0 && bat12vVoltage < DC2DC_CYCLE_V_SETPOINT) {
-        bat12Vcyclestart = (millis() / 1000);
-        dc2dcON_H = 1;
-      } else if ( dc2dcON_H == 1 && ((millis() / 1000) > bat12Vcyclestart + DC2DC_CYCLE_TIME_S)) {
-        // I am ignoring the time counter loop around as it will simply result in a short charge cycle
-        // followed with a proper charging cycle.
-        dc2dcON_H = 0;
-      }
-
-      if (digitalRead(INH_RUN) == HIGH) {
-        ticks = 0;
-        state = RUN;
-      } else if (digitalRead(INH_CHARGING) == HIGH) {
-        ticks = 0;
-        state = CHARGING;   
-      } else if (bms.getHighCellVolt() < CHARGER_CYCLE_V_SETPOINT && bms.getHighCellVolt() < MAX_CHARGE_V_SETPOINT && ticks >= standbyTicks) {
+      if (digitalRead(INH_CHARGING) == HIGH) { // charging is prioritised against running
         ticks = 0;
         state = PRE_CHARGE;
+      } else if (digitalRead(INH_RUN) == HIGH) {
+        ticks = 0;
+        state = RUN;
       }
 #endif
       break;
@@ -58,18 +60,14 @@ void Controller::doController() {
         state = CHARGING;
       }
 #else
-      if (ticks >= 15 && ticks <=100) { //adjust to give time to the EVCC to properly boot (15 ticks == 3 seconds
-        if ( (digitalRead(INL_EVSE_DISC) == LOW) || (digitalRead(INH_CHARGING) == LOW) ) {
-          ticks = 0;
-          state = STANDBY;
-        } else if (digitalRead(INH_CHARGING) == HIGH) {
-          ticks = 0;
-          state = CHARGING;
-        }
-      } else if (ticks > 100) {
+      if (bms.getAvgCellVolt() < MAX_CHARGE_V_SETPOINT
+          && digitalRead(INH_CHARGING) == HIGH
+          && !heatingON_H) {
+        ticks = 0;
+        state = CHARGING;
+      } else if (bms.getAvgCellVolt() >= MAX_CHARGE_V_SETPOINT || digitalRead(INH_CHARGING) == LOW) {
         ticks = 0;
         state = STANDBY;
-        //TODO log error that charger did not start. Maybe a charger start fault.
       }
 #endif
       break;
@@ -78,10 +76,26 @@ void Controller::doController() {
 #ifdef STATECYCLING
       if (ticks >= stateticks) {
         ticks = 0;
+        state = POST_CHARGE;
+      }
+#else
+      if (bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT
+          || digitalRead(INH_CHARGING) == LOW
+          || chargerInhibit) {
+        ticks = 0;
+        state = POST_CHARGE;
+      }
+#endif
+      break;
+    /**************** ****************/
+    case POST_CHARGE:
+#ifdef STATECYCLING
+      if (ticks >= stateticks) {
+        ticks = 0;
         state = RUN;
       }
 #else
-      if (digitalRead(INL_EVSE_DISC) == LOW || digitalRead(INH_CHARGING) == LOW) {
+      if (bms.getHighCellVolt() - bms.getLowCellVolt() < PRECISION_BALANCE_CELL_V_OFFSET && ticks >= stateticks) {
         ticks = 0;
         state = STANDBY;
       }
@@ -110,7 +124,7 @@ void Controller::doController() {
   switch (state) {
 
     case INIT:
-      period = 200;
+      period = LOOP_PERIOD_ACTIVE_MS;
       init();
       break;
 
@@ -118,32 +132,37 @@ void Controller::doController() {
       //prevents sleeping if the console is connected or if within 1 minute of a hard reset.
       //The teensy wont let reprogram if it slept once so this allows reprograming within 1 minute.
       if (SERIALCONSOLE || millis() < 60000) {
-        period = 200;
+        period = LOOP_PERIOD_ACTIVE_MS;
         standbyTicks = 12;
       } else {
-        period = 2500;
+        period = LOOP_PERIOD_STANDBY_MS;
         standbyTicks = 1;
       }
       standby();
       break;
 
     case PRE_CHARGE:
-      period = 200;
+      period = LOOP_PERIOD_ACTIVE_MS;
       pre_charge();
       break;
 
     case CHARGING:
-      period = 200;
+      period = LOOP_PERIOD_ACTIVE_MS;
       charging();
       break;
 
+    case POST_CHARGE:
+      period = LOOP_PERIOD_ACTIVE_MS;
+      post_charge();
+      break;
+
     case RUN:
-      period = 200;
+      period = LOOP_PERIOD_ACTIVE_MS;
       run();
       break;
 
     default:
-      period = 200;
+      period = LOOP_PERIOD_ACTIVE_MS;
       break;
   }
   ticks++;
@@ -193,22 +212,22 @@ void Controller::syncModuleDataObjects() {
     faultModuleLoopDB = 0;
     faultModuleLoop = false;
   }
-
-  if (digitalRead(INL_BAT_MON_FAULT) == LOW) {
-    faultBatMonDB += 1;
-    if (faultBatMonDB >= FAULT_DEBOUNCE_COUNT) {
-      if (!faultBatMon) {
-        LOG_ERROR("The battery monitor asserted the fault loop!\n");
+/*
+  if (TODO) {
+    faultCANbusDB += 1;
+    if (faultCANbusDB >= FAULT_DEBOUNCE_COUNT) {
+      if (!faultCANbus) {
+        LOG_ERROR("CAN bus fault detected!\n");
       }
-      faultBatMon = true;
-      faultBatMonDB = FAULT_DEBOUNCE_COUNT;
+      faultCANbus = true;
+      faultCANbusDB = FAULT_DEBOUNCE_COUNT;
     }
   } else {
-    if (faultBatMon) LOG_INFO("The battery monitor deasserted the fault loop\n");
-    faultBatMonDB = 0;
-    faultBatMon = false;
+    if (faultCANbus) LOG_INFO("CAN bus fault gone\n");
+    faultCANbusDB = 0;
+    faultCANbus = false;
   }
-
+*/
   if (digitalRead(INL_WATER_SENS1) == LOW) {
     faultWatSen1DB += 1;
     if (faultWatSen1DB >= FAULT_DEBOUNCE_COUNT) {
@@ -299,7 +318,7 @@ void Controller::syncModuleDataObjects() {
     faultBMSUT = false;
   }
 
-  bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
+  //bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
   //LOG_INFO("bat12vVoltage: %.2f\n", bat12vVoltage);
   if ( bat12vVoltage > BAT12V_OVER_V_SETPOINT) {
     fault12VBatOVDB += 1;
@@ -331,19 +350,48 @@ void Controller::syncModuleDataObjects() {
     fault12VBatUV = false;
   }
 
+  // If the valve feedback does not match the heating state
+  float feedback = (float)analogRead(INA_VALVE_FEEDBACK) / VALVE_FEEDBACK_SCALING_DIVISOR;
+  if ( feedback > VALVE_CLOSED_V_THRESH && heatingON_H) {
+    faultHeatLoopDB += 1;
+    if (faultHeatLoopDB >= FAULT_DEBOUNCE_COUNT) {
+      if (!faultHeatLoop) {
+        LOG_ERROR("The cooling loop is open although in heating mode (valve feedback %.2fV)\n", feedback);
+      }
+      faultHeatLoop = true;
+      faultHeatLoopDB = FAULT_DEBOUNCE_COUNT;
+    }
+  } else if ( feedback < VALVE_OPEN_V_THRESH && !heatingON_H) {
+    faultHeatLoopDB += 1;
+    if (faultHeatLoopDB >= FAULT_DEBOUNCE_COUNT) {
+      if (!faultHeatLoop) {
+        LOG_ERROR("The heating loop is closed although not in heating mode (valve feedback %.2fV)\n", feedback);
+      }
+      faultHeatLoop = true;
+      faultHeatLoopDB = FAULT_DEBOUNCE_COUNT;
+    }
+  } else {
+    if (faultHeatLoop) LOG_INFO("The heating/cooling loop valve works again\n");
+    faultHeatLoopDB = 0;
+    faultHeatLoop = false;
+  }
+
   //added bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT to stop charging even if charging in run state.
-  chargerInhibit = faultModuleLoop || faultBatMon || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2;
+  chargerInhibit = faultModuleLoop || faultCANbus || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2;
   chargerInhibit |= bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT;
-  powerLimiter   = faultModuleLoop || faultBatMon || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2 || faultBMSUV;
+  powerLimiter   = faultModuleLoop || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2 || faultBMSUV;
   powerLimiter |= bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT;
-  //powerLimiter = faultModuleLoop || faultBatMon || faultBMSSerialComms || faultBMSUV || faultBMSOT;
-  isFaulted =  chargerInhibit || faultBMSUV || faultBMSUT || fault12VBatOV || fault12VBatUV;
+  isFaulted =  chargerInhibit || faultBMSUV || faultBMSUT || fault12VBatOV || fault12VBatUV || faultHeatLoop;
+
+  heatingON_H &= !sFaultHeatLoop; // switch off heating if faulted for one or more state cycles
+  heatingON_H &= !faultBMSOT; // switch off heating if over-temperature detected
+  dc2dcON_H &= !chargerInhibit; // switch off DC2DC charger if BMS is faulted
 
   if (chargerInhibit) LOG_INFO("chargerInhibit line asserted!\n");
 
   //update stiky faults
   sFaultModuleLoop |= faultModuleLoop;
-  sFaultBatMon |= faultBatMon;
+  sFaultCANbus |= faultCANbus;
   sFaultBMSSerialComms |= faultBMSSerialComms;
   sFaultBMSOV |= faultBMSOV;
   sFaultBMSUV |= faultBMSUV;
@@ -353,19 +401,22 @@ void Controller::syncModuleDataObjects() {
   sFault12VBatUV |= fault12VBatUV;
   sFaultWatSen1 |= faultWatSen1;
   sFaultWatSen2 |= faultWatSen2;
+  sFaultHeatLoop |= faultHeatLoop;
 
   //update time stamps
-  if (faultModuleLoop) faultModuleLoopTS = millis() / 1000;
-  if (faultBatMon) faultBatMonTS = millis() / 1000;
-  if (faultBMSSerialComms) faultBMSSerialCommsTS = millis() / 1000;
-  if (faultBMSOV) faultBMSOVTS = millis() / 1000;
-  if (faultBMSUV) faultBMSUVTS = millis() / 1000;
-  if (faultBMSOT) faultBMSOTTS = millis() / 1000;
-  if (faultBMSUT) faultBMSUTTS = millis() / 1000;
-  if (fault12VBatOV) fault12VBatOVTS = millis() / 1000;
-  if (fault12VBatUV) fault12VBatUVTS = millis() / 1000;
-  if (faultWatSen1) faultWatSen1TS = millis() / 1000;
-  if (faultWatSen2) faultWatSen2TS = millis() / 1000;
+  long timeInSec = millis() / 1000;
+  if (faultModuleLoop) faultModuleLoopTS = timeInSec;
+  if (faultCANbus) faultCANbusTS = timeInSec;
+  if (faultBMSSerialComms) faultBMSSerialCommsTS = timeInSec;
+  if (faultBMSOV) faultBMSOVTS = timeInSec;
+  if (faultBMSUV) faultBMSUVTS = timeInSec;
+  if (faultBMSOT) faultBMSOTTS = timeInSec;
+  if (faultBMSUT) faultBMSUTTS = timeInSec;
+  if (fault12VBatOV) fault12VBatOVTS = timeInSec;
+  if (fault12VBatUV) fault12VBatUVTS = timeInSec;
+  if (faultWatSen1) faultWatSen1TS = timeInSec;
+  if (faultWatSen2) faultWatSen2TS = timeInSec;
+  if (faultHeatLoop) faultHeatLoopTS = timeInSec;
 
   stickyFaulted |= isFaulted;
   bms.clearFaults();
@@ -376,13 +427,12 @@ void Controller::syncModuleDataObjects() {
 /// \brief balances the cells according to BALANCE_CELL_V_OFFSET threshold in the CONFIG.h file
 /////////////////////////////////////////////////
 void Controller::balanceCells() {
-  //balance for 1 second given that the controller wakes up every second.
   if (bms.getHighCellVolt() > PRECISION_BALANCE_V_SETPOINT) {
     //LOG_CONSOLE("precision balance\n");
-    bms.balanceCells(5, PRECISION_BALANCE_CELL_V_OFFSET);
+    bms.balanceCells(BALANCE_CELL_PERIOD_S, PRECISION_BALANCE_CELL_V_OFFSET);
   } else if (bms.getHighCellVolt() > ROUGH_BALANCE_V_SETPOINT) {
     //LOG_CONSOLE("rough balance\n");
-    bms.balanceCells(5, ROUGH_BALANCE_CELL_V_OFFSET);
+    bms.balanceCells(BALANCE_CELL_PERIOD_S, ROUGH_BALANCE_CELL_V_OFFSET);
   }
 }
 
@@ -410,22 +460,23 @@ float Controller::getCoolingPumpDuty(float temp) {
 /// \brief reset all boards, assign address to each board and configure their thresholds
 /////////////////////////////////////////////////
 void Controller::init() {
-  pinMode(OUTL_12V_BAT_CHRG, INPUT);
+  pinMode(OUTL_12V_BAT_CHRG, OUTPUT);
   pinMode(OUTPWM_PUMP, OUTPUT); //PWM use analogWrite(OUTPWM_PUMP, 0-255);
   pinMode(INL_BAT_PACK_FAULT, INPUT_PULLUP);
-  pinMode(INL_BAT_MON_FAULT, INPUT_PULLUP);
-  pinMode(INL_EVSE_DISC, INPUT_PULLUP);
+  pinMode(OUTH_BAT_HEATER, OUTPUT);
+  pinMode(OUTL_VALVE_OPEN, OUTPUT);
+  pinMode(INA_VALVE_FEEDBACK, INPUT); // [0-1023] = analogRead(INA_VALVE_FEEDBACK)
   pinMode(INH_RUN, INPUT_PULLDOWN);
   pinMode(INH_CHARGING, INPUT_PULLDOWN);
   pinMode(INA_12V_BAT, INPUT);  // [0-1023] = analogRead(INA_12V_BAT)
-  pinMode(OUTL_EVCC_ON, OUTPUT);
+  pinMode(OUTL_OBC_ON, OUTPUT);
   pinMode(OUTH_FAULT, OUTPUT);
   pinMode(INL_WATER_SENS1, INPUT_PULLUP);
   pinMode(INL_WATER_SENS2, INPUT_PULLUP);
 
   //faults
   faultModuleLoop = false;
-  faultBatMon = false;
+  faultCANbus = false;
   faultBMSSerialComms = false;
   faultBMSOV = false;
   faultBMSUV = false;
@@ -435,10 +486,11 @@ void Controller::init() {
   fault12VBatUV = false;
   faultWatSen1 = false;
   faultWatSen2 = false;
+  faultHeatLoop = false;
 
   //sticky faults
   sFaultModuleLoop = false;
-  sFaultBatMon = false;
+  sFaultCANbus = false;
   sFaultBMSSerialComms = false;
   sFaultBMSOV = false;
   sFaultBMSUV = false;
@@ -448,10 +500,11 @@ void Controller::init() {
   sFault12VBatUV = false;
   sFaultWatSen1 = false;
   sFaultWatSen2 = false;
+  sFaultHeatLoop = false;
 
   //faults debounce counters
   faultModuleLoopDB = 0;
-  faultBatMonDB = 0;
+  faultCANbusDB = 0;
   faultBMSSerialCommsDB = 0;
   faultBMSOVDB = 0;
   faultBMSUVDB = 0;
@@ -461,10 +514,11 @@ void Controller::init() {
   fault12VBatUVDB = 0;
   faultWatSen1DB = 0;
   faultWatSen2DB = 0;
+  faultHeatLoopDB = 0;
 
   //faults time stamps (TS)
   faultModuleLoopTS = 0;
-  faultBatMonTS = 0;
+  faultCANbusTS = 0;
   faultBMSSerialCommsTS = 0;
   faultBMSOVTS = 0;
   faultBMSUVTS = 0;
@@ -474,6 +528,7 @@ void Controller::init() {
   fault12VBatUVTS = 0;
   faultWatSen1TS = 0;
   faultWatSen2TS = 0;
+  faultHeatLoopTS = 0;
 
   isFaulted = false;
   stickyFaulted = false;
@@ -481,14 +536,16 @@ void Controller::init() {
   chargerInhibit = false;
   powerLimiter = false;
   dc2dcON_H = false;
-  period = 200;
+  heatingON_H = false;
+  period = LOOP_PERIOD_ACTIVE_MS;
+  bat12vVoltage = 0;
 
   bms.renumberBoardIDs();
   bms.clearFaults();
 }
 
 /////////////////////////////////////////////////
-/// \brief This helper function allows mimicking an open collector output (floating or gorund).
+/// \brief This helper function allows mimicking an open collector output (floating or ground).
 /////////////////////////////////////////////////
 void Controller::setOutput(int pin, int state){
   if (state == 1) {
@@ -499,49 +556,76 @@ void Controller::setOutput(int pin, int state){
   }
 }
 /////////////////////////////////////////////////
-/// \brief standby state is when the boat *is not connected*
-/// to a EVSE and not in run state.
+/// \brief standby state is when the vehicle is not charging and not in run state.
+///
+/// Still, the vehicle or the OBC is switched on (otherwise the BMS is not powered)
 /////////////////////////////////////////////////
 void Controller::standby() {
   balanceCells();
-  setOutput(OUTL_EVCC_ON, HIGH);
+  setOutput(OUTL_OBC_ON, HIGH);
   setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
-
-  analogWrite(OUTPWM_PUMP, 0);
+  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H); // may charge the 12V battery
+  setOutput(OUTH_BAT_HEATER, heatingON_H); // may heat the pack
+  setOutput(OUTL_VALVE_OPEN, heatingON_H);
+  if (heatingON_H) {
+    analogWrite(OUTPWM_PUMP, 255);
+  } else {
+    analogWrite(OUTPWM_PUMP, 0);
+  }
 }
 
 /////////////////////////////////////////////////
-/// \brief pre_charge state is turning on the EVCC to charge the battery. If the EVSE is disconnected,
-/// it goes back to STANDBY.
+/// \brief pre_charge state is turning on battery heating and switches into charging, when done
 /////////////////////////////////////////////////
 void Controller::pre_charge() {
   balanceCells();
-  setOutput(OUTL_EVCC_ON, LOW);
+  setOutput(OUTL_OBC_ON, HIGH);
   setOutput(OUTH_FAULT, chargerInhibit);
   setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
-  analogWrite(OUTPWM_PUMP, 0);
+  setOutput(OUTH_BAT_HEATER, heatingON_H);
+  setOutput(OUTL_VALVE_OPEN, heatingON_H);
+  if (heatingON_H) {
+    analogWrite(OUTPWM_PUMP, 255);
+  } else {
+    analogWrite(OUTPWM_PUMP, 0);
+  }
 }
 
 /////////////////////////////////////////////////
-/// \brief charging state is when the boat *is connected*
-/// to a EVSE and is actively charging until EVCC shuts itself down.
+/// \brief charging state allows the OBC to charge the pack
 /////////////////////////////////////////////////
 void Controller::charging() {
   balanceCells();
-  setOutput(OUTL_EVCC_ON, LOW);
+  setOutput(OUTL_OBC_ON, LOW);
   setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, LOW);
+  setOutput(OUTL_12V_BAT_CHRG, HIGH); // 12V charging switched off
+  setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
+  setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, (uint8_t) (getCoolingPumpDuty(bms.getHighTemperature()) * 255 ));
+}
+
+/////////////////////////////////////////////////
+/// \brief post_charge state is common in BMS-OBC communication. Only balances cells
+/////////////////////////////////////////////////
+void Controller::post_charge() {
+  balanceCells();
+  setOutput(OUTL_OBC_ON, HIGH);
+  setOutput(OUTH_FAULT, chargerInhibit);
+  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
+  setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
+  setOutput(OUTL_VALVE_OPEN, LOW);
+  analogWrite(OUTPWM_PUMP, 0);
 }
 
 /////////////////////////////////////////////////
 /// \brief run state is turned on and ready to operate.
 /////////////////////////////////////////////////
 void Controller::run() {
-  setOutput(OUTL_EVCC_ON, LOW); //required so that the EVSE_DISC is valid (will inhibit the motor controller if EVSE is connected)
+  setOutput(OUTL_OBC_ON, HIGH);
   setOutput(OUTH_FAULT, powerLimiter);
-  setOutput(OUTL_12V_BAT_CHRG, LOW);
+  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
+  setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
+  setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, (uint8_t) (getCoolingPumpDuty(bms.getHighTemperature()) * 255 ));
 }
 
@@ -583,6 +667,9 @@ void Controller::printControllerState() {
     case CHARGING:
       LOG_CONSOLE("=  state: CHARGING                                                                 =\n");
       break;
+    case POST_CHARGE:
+      LOG_CONSOLE("=  state: POST_CHARGE                                                              =\n");
+      break;
     case RUN:
       LOG_CONSOLE("=  state: RUN                                                                      =\n");
       break;
@@ -594,8 +681,8 @@ void Controller::printControllerState() {
   LOG_CONSOLE("----------------------   -----------------------------------------------------------\n");
   if (sFaultModuleLoop) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
                                       "faultModuleLoop", faultModuleLoopTS / 86400, (faultModuleLoopTS % 86400) / 3600, (faultModuleLoopTS % 3600) / 60, (faultModuleLoopTS % 60));
-  if (sFaultBatMon) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
-                                  "faultBatMon", faultBatMonTS / 86400, (faultBatMonTS % 86400) / 3600, (faultBatMonTS % 3600) / 60, (faultBatMonTS % 60));
+  if (sFaultCANbus) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
+                                  "faultCANbus", faultCANbusTS / 86400, (faultCANbusTS % 86400) / 3600, (faultCANbusTS % 3600) / 60, (faultCANbusTS % 60));
   if (sFaultBMSSerialComms) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
                                           "faultBMSSerialComms", faultBMSSerialCommsTS / 86400, (faultBMSSerialCommsTS % 86400) / 3600, (faultBMSSerialCommsTS % 3600) / 60, (faultBMSSerialCommsTS % 60));
   if (sFaultBMSOV) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
@@ -614,4 +701,6 @@ void Controller::printControllerState() {
                                    "faultWatSen1", faultWatSen1TS / 86400, (faultWatSen1TS % 86400) / 3600, (faultWatSen1TS % 3600) / 60, (faultWatSen1TS % 60));
   if (sFaultWatSen2) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
                                    "faultWatSen2", faultWatSen2TS / 86400, (faultWatSen2TS % 86400) / 3600, (faultWatSen2TS % 3600) / 60, (faultWatSen2TS % 60));
+  if (sFaultHeatLoop) LOG_CONSOLE("%-22s @ %-3d days, %02d:%02d:%02d\n",
+                                   "faultHeatLoop", faultHeatLoopTS / 86400, (faultHeatLoopTS % 86400) / 3600, (faultHeatLoopTS % 3600) / 60, (faultHeatLoopTS % 60));
 }

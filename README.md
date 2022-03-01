@@ -2,7 +2,29 @@
 
 ![Tesla BMS BL](misc/20190319_221311.jpg)
 
+This project is based on https://github.com/Vigeant/teslaBMSBL
+
+It supports native Tesla model S/X module drivers, which come with cell-level voltage monitoring, active cell balancing, redundant high-speed communication, module fault detection, and two temperature sensors. They allow any number of modules up to 63, independent of the pack configuration.
+
+Some changes are applied in this fork to suit electric car conversion purposes:
+- Implement CAN bus communication with Elcon OBC
+- TODO: Implement CAN bus communication with VCU
+- TODO: Implement CAN bus fault logic (code B)
+- Add post-charge to the controller states (balancing)
+- Remove auto-charging logic from the controller
+- TODO: Regulate charger amperage based on cell voltage
+- Replace DC2DC 12V battery charging cycle with on- and off-setpoints
+- Add battery heating logic and valve feedback fault detection
+- TODO: PCB features
+	- Add circuitry and 12V relays for battery heater and valve (incl. valve feedback at A10)
+	- Remove battery monitor fault circuitry and EVCC disconnect (use pins for valve and battery heating)
+	- Move elements away from Teensy USB connector
+	- Replace connectors for SN65HVD230 with connectors for a 6-pin board (better availability, comes with 120 and 10k Ohm resistors)
+	- Replace fault-pin relay with transistor
+	- Use automotive-standard connectors
+
 ## dependencies
+
 - TeensyView libs
 	- https://github.com/sparkfun/SparkFun_TeensyView_Arduino_Library/tree/master/examples
 - Snooze for lower power consumption
@@ -13,7 +35,7 @@
 | code | definition | 
 |:----:|------------|
 | A | Modules Fault Loop |
-| B | Battery Monitor Fault |
+| B | CAN bus Fault |
 | C | BMS Serial communication Fault |
 | D | BMS Cell Over Voltage Fault |
 | E | BMS Cell Under Voltage Fault |
@@ -23,19 +45,13 @@
 | I | BMS 12V Battery Under Voltage Fault |
 | J | BMS Water Sensor 1 Fault |
 | K | BMS Water Sensor 2 Fault |
+| L | Coolant Loop Valve Fault |
 
 ## Connection to USB serial console
 
 Serial Line: COMX (X typically = 7)
 Speed: 115200
 
-## state machine:
-[State machine](https://online.visual-paradigm.com/w/pmcoivfe/diagrams.jsp#diagram:proj=0&id=3)
-## todo
-- [X] Change state machine to match actual charger controller behavior. 
-- [X] sleep modes for the teensy
-	- [X] full speed when a console is connected and in all but STANDBY mode, 5s sleep in STANDBY when no console is connected.
-	
 ## particularities
 Due to the 5s deepsleep mode in standby, it is hard to connect the serial console. To make it easier, either connect within 1 minute of a reset or place the bms in run mode and connect.
 Due to the deepsleep mode, it is impossible to simply reprogram the teensy following the first sleep. To facilitate reprogramming, the board will not sleep for 1 minute following a reset.

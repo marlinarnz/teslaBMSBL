@@ -8,7 +8,7 @@ class BMSModuleManager
 {
   public:
     BMSModuleManager();
-    int seriescells();
+    int seriesCells();
     void resetModuleRecordedValues();
     void StopBalancing();
     void balanceCells(uint8_t duration, float cell_v_offset);

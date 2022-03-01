@@ -137,6 +137,9 @@ void Oled::printFormat5() {
     case Controller::CHARGING:
       Oled::printCentre("CHARGING", 1);
       break;
+    case Controller::POST_CHARGE:
+      Oled::printCentre("POST_CHARGE", 1);
+      break;
     case Controller::RUN:
       Oled::printCentre("RUN", 1);
       break;
@@ -168,7 +171,7 @@ void Oled::printStickyFaults() {
   if (controller_inst_ptr->sFaultModuleLoop) {
     oled.print("A");
   }
-  if (controller_inst_ptr->sFaultBatMon) {
+  if (controller_inst_ptr->sFaultCANbus) {
     oled.print("B");
   }
   if (controller_inst_ptr->sFaultBMSSerialComms) {
@@ -198,6 +201,9 @@ void Oled::printStickyFaults() {
   if (controller_inst_ptr->sFaultWatSen2) {
     oled.print("K");
   }
+  if (controller_inst_ptr->sFaultHeatLoop) {
+    oled.print("L");
+  }
 
   oled.display();
 }
@@ -214,7 +220,7 @@ void Oled::printFaults() {
   if (controller_inst_ptr->faultModuleLoop) {
     oled.print("A");
   }
-  if (controller_inst_ptr->faultBatMon) {
+  if (controller_inst_ptr->faultCANbus) {
     oled.print("B");
   }
   if (controller_inst_ptr->faultBMSSerialComms) {
@@ -243,6 +249,9 @@ void Oled::printFaults() {
   }
   if (controller_inst_ptr->faultWatSen2) {
     oled.print("K");
+  }
+  if (controller_inst_ptr->faultHeatLoop) {
+    oled.print("L");
   }
 
   oled.display();
