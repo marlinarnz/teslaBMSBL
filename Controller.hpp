@@ -82,7 +82,7 @@ class Controller {
     BMSModuleManager bms;
 
     bool chargerInhibit;
-    bool powerLimiter;
+    bool dischargeInhibit;
     bool dc2dcON_H;
     bool heatingON_H;
     uint32_t period;

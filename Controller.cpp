@@ -213,7 +213,7 @@ void Controller::syncModuleDataObjects() {
     faultModuleLoop = false;
   }
 /*
-  if (TODO) {
+  if (TODO && COMMUNICATE_VIA_CAN) {
     faultCANbusDB += 1;
     if (faultCANbusDB >= FAULT_DEBOUNCE_COUNT) {
       if (!faultCANbus) {
@@ -376,16 +376,15 @@ void Controller::syncModuleDataObjects() {
     faultHeatLoop = false;
   }
 
-  //added bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT to stop charging even if charging in run state.
+  // Cumulative fault stati
   chargerInhibit = faultModuleLoop || faultCANbus || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2;
   chargerInhibit |= bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT;
-  powerLimiter   = faultModuleLoop || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2 || faultBMSUV;
-  powerLimiter |= bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT;
-  isFaulted =  chargerInhibit || faultBMSUV || faultBMSUT || fault12VBatOV || fault12VBatUV || faultHeatLoop;
+  dischargeInhibit = faultModuleLoop || faultCANbus || faultBMSSerialComms || faultBMSOT || faultBMSUV || faultWatSen1 || faultWatSen2;
+  isFaulted = chargerInhibit || dischargeInhibit || fault12VBatOV || fault12VBatUV || faultHeatLoop;
 
   heatingON_H &= !sFaultHeatLoop; // switch off heating if faulted for one or more state cycles
   heatingON_H &= !faultBMSOT; // switch off heating if over-temperature detected
-  dc2dcON_H &= !chargerInhibit; // switch off DC2DC charger if BMS is faulted
+  dc2dcON_H &= !dischargeInhibit; // switch off DC2DC charger if discharge disabled
 
   if (chargerInhibit) LOG_INFO("chargerInhibit line asserted!\n");
 
@@ -404,7 +403,7 @@ void Controller::syncModuleDataObjects() {
   sFaultHeatLoop |= faultHeatLoop;
 
   //update time stamps
-  long timeInSec = millis() / 1000;
+  long timeInSec = long(millis() / 1000);
   if (faultModuleLoop) faultModuleLoopTS = timeInSec;
   if (faultCANbus) faultCANbusTS = timeInSec;
   if (faultBMSSerialComms) faultBMSSerialCommsTS = timeInSec;
@@ -460,7 +459,7 @@ float Controller::getCoolingPumpDuty(float temp) {
 /// \brief reset all boards, assign address to each board and configure their thresholds
 /////////////////////////////////////////////////
 void Controller::init() {
-  pinMode(OUTL_12V_BAT_CHRG, OUTPUT);
+  pinMode(OUTH_12V_BAT_CHRG, OUTPUT);
   pinMode(OUTPWM_PUMP, OUTPUT); //PWM use analogWrite(OUTPWM_PUMP, 0-255);
   pinMode(INL_BAT_PACK_FAULT, INPUT_PULLUP);
   pinMode(OUTH_BAT_HEATER, OUTPUT);
@@ -469,8 +468,8 @@ void Controller::init() {
   pinMode(INH_RUN, INPUT_PULLDOWN);
   pinMode(INH_CHARGING, INPUT_PULLDOWN);
   pinMode(INA_12V_BAT, INPUT);  // [0-1023] = analogRead(INA_12V_BAT)
-  pinMode(OUTL_OBC_ON, OUTPUT);
-  pinMode(OUTH_FAULT, OUTPUT);
+  pinMode(OUTH_OBC_ON, OUTPUT);
+  pinMode(OUTH_RUN, OUTPUT);
   pinMode(INL_WATER_SENS1, INPUT_PULLUP);
   pinMode(INL_WATER_SENS2, INPUT_PULLUP);
 
@@ -534,7 +533,7 @@ void Controller::init() {
   stickyFaulted = false;
 
   chargerInhibit = false;
-  powerLimiter = false;
+  dischargeInhibit = false;
   dc2dcON_H = false;
   heatingON_H = false;
   period = LOOP_PERIOD_ACTIVE_MS;
@@ -562,9 +561,9 @@ void Controller::setOutput(int pin, int state){
 /////////////////////////////////////////////////
 void Controller::standby() {
   balanceCells();
-  setOutput(OUTL_OBC_ON, HIGH);
-  setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H); // may charge the 12V battery
+  setOutput(OUTH_OBC_ON, LOW); // no charging
+  setOutput(OUTH_RUN, LOW); // no running
+  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H); // may charge the 12V battery
   setOutput(OUTH_BAT_HEATER, heatingON_H); // may heat the pack
   setOutput(OUTL_VALVE_OPEN, heatingON_H);
   if (heatingON_H) {
@@ -579,10 +578,10 @@ void Controller::standby() {
 /////////////////////////////////////////////////
 void Controller::pre_charge() {
   balanceCells();
-  setOutput(OUTL_OBC_ON, HIGH);
-  setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
-  setOutput(OUTH_BAT_HEATER, heatingON_H);
+  setOutput(OUTH_OBC_ON, LOW); // no charging
+  setOutput(OUTH_RUN, LOW); // no running
+  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H); // may charge the 12V battery
+  setOutput(OUTH_BAT_HEATER, heatingON_H); // may heat the pack
   setOutput(OUTL_VALVE_OPEN, heatingON_H);
   if (heatingON_H) {
     analogWrite(OUTPWM_PUMP, 255);
@@ -596,9 +595,9 @@ void Controller::pre_charge() {
 /////////////////////////////////////////////////
 void Controller::charging() {
   balanceCells();
-  setOutput(OUTL_OBC_ON, LOW);
-  setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, HIGH); // 12V charging switched off
+  setOutput(OUTH_OBC_ON, chargerInhibit);
+  setOutput(OUTH_RUN, LOW); // no running
+  setOutput(OUTH_12V_BAT_CHRG, LOW); // 12V charging switched off
   setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
   setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, (uint8_t) (getCoolingPumpDuty(bms.getHighTemperature()) * 255 ));
@@ -609,9 +608,9 @@ void Controller::charging() {
 /////////////////////////////////////////////////
 void Controller::post_charge() {
   balanceCells();
-  setOutput(OUTL_OBC_ON, HIGH);
-  setOutput(OUTH_FAULT, chargerInhibit);
-  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
+  setOutput(OUTH_OBC_ON, LOW);
+  setOutput(OUTH_RUN, LOW);
+  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H);
   setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
   setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, 0);
@@ -621,9 +620,9 @@ void Controller::post_charge() {
 /// \brief run state is turned on and ready to operate.
 /////////////////////////////////////////////////
 void Controller::run() {
-  setOutput(OUTL_OBC_ON, HIGH);
-  setOutput(OUTH_FAULT, powerLimiter);
-  setOutput(OUTL_12V_BAT_CHRG, !dc2dcON_H);
+  setOutput(OUTH_OBC_ON, LOW);
+  setOutput(OUTH_RUN, dischargeInhibit);
+  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H);
   setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
   setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, (uint8_t) (getCoolingPumpDuty(bms.getHighTemperature()) * 255 ));

@@ -14,7 +14,7 @@
 //side 1
 //#define SERIAL1_RX          0
 //#define SERIAL1_TX          1
-#define OUTL_12V_BAT_CHRG     2     //Drive low to turn the DC2DC converter to charge the 12V battery       
+#define OUTH_12V_BAT_CHRG     2     //Drive high to turn the DC2DC converter to charge the 12V battery       
 #define CAN_TX                3
 #define CAN_RX                4
 #define OLED_PIN_DC           5
@@ -33,14 +33,15 @@
 #define INL_BAT_PACK_FAULT    16    //Tesla Battery pack fault.
 #define OUTL_VALVE_OPEN       17    //Tesla 4-way valve: switch between open system with motor (GND) and closed heating loop (+12V)
 #define OUTH_BAT_HEATER       18    //Battery heater relay
-#define INH_RUN               19    //RUN signal from power relay with voltage divider from 12V to 3.3V.
-#define INH_CHARGING          20    //CHARGING signal from OBC. (Set Out1 to charging switched 12V)
+#define INH_RUN               19    //RUN signal from VCU with voltage divider from 12V to 3.3V.
+#define INH_CHARGING          20    //CHARGING signal from OBC with voltage divider from 12V to 3.3V.
 #define INA_12V_BAT           A7    //PIN21 12v battery monitor. Analog input with 12V to 3.3V voltage divider.
-#define OUTL_OBC_ON           22    //drive low to unblock the OBC from charging
-#define OUTH_FAULT            23    //drive low to signal no fault. Required for OBC to charge and vehicle to run.
+#define OUTH_OBC_ON           22    //drive high to unblock the OBC from charging
+#define OUTH_RUN              23    //drive high to signal no fault that prevents discharging.
+
+// bottom side
 #define INA_VALVE_FEEDBACK    A10   //Feedback from a Tesla 4-way valve with voltage divider from 12V to 3.3V.
 
-//top side
 //short P and G to reset board into program mode using push button
 
 /*
@@ -56,7 +57,8 @@
 /*
  * Communication
  */
-#define VERSION 1
+// Either communicate via CAN bus or exclusively via analogue signals from/to VCU and OBC
+#define COMMUNICATE_VIA_CAN 1
 //Set to the proper port for your USB connection - SerialUSB on Due (Native) or Serial for Due (Programming) or Teensy
 #define SERIALCONSOLE   Serial
 //CAN bus communication settings

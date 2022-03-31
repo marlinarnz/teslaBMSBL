@@ -84,7 +84,6 @@ void loop()
   bool phaseA = true;
   //int who;
 
-  //pinMode(INH_RUN, INPUT_PULLDOWN);
   for (;;) {
     starttime = millis();
 
