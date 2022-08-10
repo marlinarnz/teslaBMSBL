@@ -212,22 +212,7 @@ void Controller::syncModuleDataObjects() {
     faultModuleLoopDB = 0;
     faultModuleLoop = false;
   }
-/*
-  if (TODO && COMMUNICATE_VIA_CAN) {
-    faultCANbusDB += 1;
-    if (faultCANbusDB >= FAULT_DEBOUNCE_COUNT) {
-      if (!faultCANbus) {
-        LOG_ERROR("CAN bus fault detected!\n");
-      }
-      faultCANbus = true;
-      faultCANbusDB = FAULT_DEBOUNCE_COUNT;
-    }
-  } else {
-    if (faultCANbus) LOG_INFO("CAN bus fault gone\n");
-    faultCANbusDB = 0;
-    faultCANbus = false;
-  }
-*/
+
   if (digitalRead(INL_WATER_SENS1) == LOW) {
     faultWatSen1DB += 1;
     if (faultWatSen1DB >= FAULT_DEBOUNCE_COUNT) {
@@ -420,6 +405,29 @@ void Controller::syncModuleDataObjects() {
   stickyFaulted |= isFaulted;
   bms.clearFaults();
   //bms.sleepBoards();
+}
+
+/////////////////////////////////////////////////
+/// \brief sets the controller CAN bus fault state according to reported value
+/////////////////////////////////////////////////
+void Controller::reportCanStatus(bool allGood) {
+  if (COMMUNICATE_VIA_CAN) {
+    if (!allGood) {
+      if (!faultCANbus) {
+        LOG_ERROR("CAN bus fault detected!\n");
+        faultCANbus = true;
+        faultCANbusDB = 0;
+      }
+    } else {
+      // switch off fault status only after debounce count
+      faultCANbusDB += 1;
+      if (faultCANbusDB >= FAULT_DEBOUNCE_COUNT) {
+        if (faultCANbus) LOG_INFO("CAN bus fault gone\n");
+        faultCANbus = false;
+        faultCANbusDB = FAULT_DEBOUNCE_COUNT;
+      }
+    }
+  }
 }
 
 /////////////////////////////////////////////////

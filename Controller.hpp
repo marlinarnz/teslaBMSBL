@@ -16,6 +16,7 @@ class Controller {
     BMSModuleManager* getBMSPtr();
     void printControllerState();
     uint32_t getPeriodMillis();
+    void reportCanStatus(bool allGood);
 
     //faults
     bool faultModuleLoop;

@@ -75,6 +75,8 @@
 #define MAX_CHARGE_V_SETPOINT 4.1f
 // charge amperage
 #define MAX_CHARGE_A_SETPOINT 30
+// reduce charger amperage at high average cell voltages (unit: ampere per volt)
+#define CHARGE_A_REDUCTION_FACTOR 100.0f
 
 /*
  * Cell balancing
