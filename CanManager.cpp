@@ -8,7 +8,6 @@ void CanManager::doCan() {
   Controller::ControllerState state = controller_inst_ptr->getState();
   if (state != Controller::INIT){// && state != Controller::STANDBY) {
     bool success = writeToOBC();
-    LOG_CONSOLE("writing message... %.0f", float(success)); //TODO remove
     success &= read();
     controller_inst_ptr->reportCanStatus(success);
   }
@@ -17,19 +16,9 @@ void CanManager::doCan() {
 /////////////////////////////////////////////////
 /// \brief Constructor sets up the messages
 /////////////////////////////////////////////////
-CanManager::CanManager(Controller* c) : controller_inst_ptr(c) {
-  // Init the message from the BMS to the OBC
-  writeMsg.id = 0x1806E5F4;
-  writeMsg.ext = 1;
-  writeMsg.len = 8;
-  sendInterval = 500; // in ms
-  lastSentTime = 0;
-
-  // Init the messages from the OBC
-  readMsg.id = 0x18FF50E5;
-  readMsg.ext = 1;
-  readMsg.len = 8;
-}
+CanManager::CanManager(Controller* c)
+  : controller_inst_ptr(c), sendInterval(500), lastSentTime(0)
+{}
 
 /////////////////////////////////////////////////
 /// \brief Destructor terminates the CAN bus
@@ -48,7 +37,7 @@ void CanManager::init() {
   mask.rtr = 0;
   mask.ext = 1;
   mask.id = 0;
-  Can0.begin(CANBUS_SPEED, mask);
+  Can0.begin(CANBUS_SPEED);
   LOG_INFO("Started CAN bus communication");
 }
 
@@ -57,6 +46,13 @@ void CanManager::init() {
 /////////////////////////////////////////////////
 bool CanManager::writeToOBC() {
   if (millis() - lastSentTime >= sendInterval) {
+    // Instantiate a new message
+    CAN_message_t writeMsg;
+    writeMsg.id = 0x1806E5F4;
+    writeMsg.len = 8;
+    writeMsg.flags.extended = 1;
+    writeMsg.flags.remote = 0;
+
     // Get the controller state and derive the charging command from it
     // 0: Charger on, charging
     // 1: Battery protection, charger output off
@@ -110,9 +106,11 @@ bool CanManager::writeToOBC() {
 bool CanManager::read() {
   // Check if a new message is available and read as long as there is a frame waiting
   while (Can0.available()) {
+    CAN_message_t readMsg;
     if (Can0.read(readMsg)) {
       
       // Go through all known message IDs and react accordingly
+      LOG_CONSOLE("received message: 0x",readMsg.id);//TODO remove
       switch (readMsg.id) {
         case 0x18FF50E5:
           break;
@@ -121,7 +119,6 @@ bool CanManager::read() {
         case 0x18FF50E7:
           break;
         default:
-          LOG_CONSOLE("received message");//TODO remove
           break;
       }
     } else {

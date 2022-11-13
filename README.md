@@ -19,8 +19,8 @@ Some changes are applied in this fork to suit electric car conversion purposes:
 	- Add circuitry and 12V relays for battery heater and valve (incl. valve feedback at A10)
 	- Remove battery monitor fault circuitry and EVCC disconnect (use pins for valve and battery heating)
 	- Move elements away from Teensy USB connector
-	- Replace connectors for SN65HVD230 with connectors for a 6-pin board (better availability, comes with 120 and 10k Ohm resistors)
-	- Replace fault-pin relay with transistor
+	- Use SMD basic parts for easy manufacturing
+	- Replace fault-pin relays with transistor switches
 	- Use automotive-standard connectors
 
 ## dependencies
