@@ -49,7 +49,7 @@
  */
 // Loop periods for the state machine of the controller
 #define LOOP_PERIOD_ACTIVE_MS 100
-#define LOOP_PERIOD_STANDBY_MS 2500
+#define LOOP_PERIOD_STANDBY_MS 2000
 // Cycle time of the OLED screen independent of controller state
 #define LOOP_PERIOD_OLED 2000
 //cell balancing period once the function is called
@@ -76,7 +76,7 @@
 //stop charging 
 #define MAX_CHARGE_V_SETPOINT 4.1f
 // charge amperage
-#define MAX_CHARGE_A_SETPOINT 30
+#define MAX_CHARGE_A_SETPOINT 5
 // reduce charger amperage at high average cell voltages (unit: ampere per volt)
 #define CHARGE_A_REDUCTION_FACTOR 100.0f
 

@@ -78,8 +78,8 @@ bool CanManager::writeToOBC() {
     float chargeVoltage = MAX_CHARGE_V_SETPOINT * controller_inst_ptr->getBMSPtr()->seriesCells();
 
     // Calculate the charge amperage for each charger
-    // When the cells come close to max charge, reduce charge amperage
     float chargeAmperage = MAX_CHARGE_A_SETPOINT / N_CHARGERS;
+    // When the cells come close to max charge, reduce charge amperage
     if (controller_inst_ptr->getBMSPtr()->getAvgCellVolt() > PRECISION_BALANCE_V_SETPOINT) {
       chargeAmperage -= (controller_inst_ptr->getBMSPtr()->getAvgCellVolt() - PRECISION_BALANCE_V_SETPOINT) * CHARGE_A_REDUCTION_FACTOR;
     }
