@@ -97,6 +97,7 @@ class Controller {
     float getCoolingPumpDuty(float);
 
     ControllerState state;
+    bool initialized;
     void setOutput(int pin, int state);
     void init(); //reset all boards and assign address to each board
     void standby();

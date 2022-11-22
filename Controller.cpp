@@ -30,7 +30,7 @@ void Controller::doController() {
   switch (state) {
     /**************** ****************/
     case INIT:
-      if (ticks >= stateticks) {
+      if (initialized) {
         ticks = 0;
         state = STANDBY;
       }
@@ -43,10 +43,12 @@ void Controller::doController() {
         state = PRE_CHARGE;
       }
 #else
-      if (digitalRead(INH_CHARGING) == HIGH) { // charging is prioritised against running
+      if (digitalRead(INH_CHARGING) == HIGH
+          && !chargerInhibit) { // charging is prioritised against running
         ticks = 0;
         state = PRE_CHARGE;
-      } else if (digitalRead(INH_RUN) == HIGH) {
+      } else if (digitalRead(INH_RUN) == HIGH
+                 && !dischargeInhibit) {
         ticks = 0;
         state = RUN;
       }
@@ -62,10 +64,13 @@ void Controller::doController() {
 #else
       if (bms.getAvgCellVolt() < MAX_CHARGE_V_SETPOINT
           && digitalRead(INH_CHARGING) == HIGH
-          && !heatingON_H) {
+          && !heatingON_H
+          && !chargerInhibit) {
         ticks = 0;
         state = CHARGING;
-      } else if (bms.getAvgCellVolt() >= MAX_CHARGE_V_SETPOINT || digitalRead(INH_CHARGING) == LOW) {
+      } else if (bms.getAvgCellVolt() >= MAX_CHARGE_V_SETPOINT
+                 || digitalRead(INH_CHARGING) == LOW
+                 || chargerInhibit) {
         ticks = 0;
         state = STANDBY;
       }
@@ -95,7 +100,7 @@ void Controller::doController() {
         state = RUN;
       }
 #else
-      if (bms.getHighCellVolt() - bms.getLowCellVolt() < PRECISION_BALANCE_CELL_V_OFFSET && ticks >= stateticks) {
+      if (bms.getHighCellVolt() - bms.getLowCellVolt() < PRECISION_BALANCE_CELL_V_OFFSET) {
         ticks = 0;
         state = STANDBY;
       }
@@ -109,7 +114,8 @@ void Controller::doController() {
         state = INIT;
       }
 #else
-      if (digitalRead(INH_RUN ) == LOW) {
+      if (digitalRead(INH_RUN ) == LOW
+          || dischargeInhibit) {
         ticks = 0;
         state = STANDBY;
       }
@@ -173,13 +179,13 @@ void Controller::doController() {
 /////////////////////////////////////////////////
 Controller::Controller() {
   state = INIT;
+  initialized = false;
 }
 
 /////////////////////////////////////////////////
 /// \brief gather all the data from the boards and check for any faults.
 /////////////////////////////////////////////////
 void Controller::syncModuleDataObjects() {
-  float bat12vVoltage;
   bms.wakeBoards();
   bms.getAllVoltTemp();
 
@@ -303,8 +309,6 @@ void Controller::syncModuleDataObjects() {
     faultBMSUT = false;
   }
 
-  //bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
-  //LOG_INFO("bat12vVoltage: %.2f\n", bat12vVoltage);
   if ( bat12vVoltage > BAT12V_OVER_V_SETPOINT) {
     fault12VBatOVDB += 1;
     if (fault12VBatOVDB >= FAULT_DEBOUNCE_COUNT) {
@@ -549,6 +553,8 @@ void Controller::init() {
 
   bms.renumberBoardIDs();
   bms.clearFaults();
+
+  initialized = true;
 }
 
 /////////////////////////////////////////////////

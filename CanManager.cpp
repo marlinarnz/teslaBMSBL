@@ -6,7 +6,7 @@
 void CanManager::doCan() {
   // Get the controller state and act, if it's active
   Controller::ControllerState state = controller_inst_ptr->getState();
-  if (state != Controller::INIT){// && state != Controller::STANDBY) {
+  if (state != Controller::INIT){
     bool success = writeToOBC();
     success &= read();
     controller_inst_ptr->reportCanStatus(success);
@@ -110,7 +110,6 @@ bool CanManager::read() {
     if (Can0.read(readMsg)) {
       
       // Go through all known message IDs and react accordingly
-      LOG_CONSOLE("received message: 0x",readMsg.id);//TODO remove
       switch (readMsg.id) {
         case 0x18FF50E5:
           break;
