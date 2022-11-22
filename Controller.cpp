@@ -4,8 +4,8 @@
 /// \brief Orchestrates the activities within the BMS via a state machine.
 /////////////////////////////////////////////////
 void Controller::doController() {
+  // For statecycling in test mode only: count ticks
   static int ticks = 0;
-  static int standbyTicks = 1; //1 because ticks slow down
   const int stateticks = 4;
 
   // 12V battery monitoring
@@ -139,10 +139,8 @@ void Controller::doController() {
       //The teensy wont let reprogram if it slept once so this allows reprograming within 1 minute.
       if (SERIALCONSOLE || millis() < 60000) {
         period = LOOP_PERIOD_ACTIVE_MS;
-        standbyTicks = 12;
       } else {
         period = LOOP_PERIOD_STANDBY_MS;
-        standbyTicks = 1;
       }
       standby();
       break;

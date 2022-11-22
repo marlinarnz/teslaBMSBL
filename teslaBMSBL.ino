@@ -30,12 +30,12 @@ static Cons cons_inst(&controller_inst);       ///< The console is a 2 way user 
 static Oled oled_inst(&controller_inst);       ///< The oled is a 1 way user interface displaying the most critical information.
 static CanManager can_inst(&controller_inst);  ///< The CanManager reads and writes messages on the CAN bus
 
-// Load drivers
+/*// Load drivers
 SnoozeDigital digital; // wake up by digital pin
 SnoozeTimer timer; // wake up by timer
 SnoozeUSBSerial usbSerial; // wake up through USB connection
 // install drivers to a SnoozeBlock
-SnoozeBlock config(timer, digital, usbSerial);
+SnoozeBlock config(timer, digital, usbSerial);*/
 
 /////////////////////////////////////////////////
 /// \brief The setup function runs once when you press reset or power the board.
@@ -58,6 +58,7 @@ void phase1main() {
     CPU_RESTART;
   }
   cons_inst.doConsole();
+  can_inst.doCan();
 }
 
 /////////////////////////////////////////////////
@@ -71,7 +72,6 @@ void phase1A() {
 /// Holds code that runs every two periods
 /////////////////////////////////////////////////
 void phase1B() {
-  can_inst.doCan();
   oled_inst.doOled();
 }
 
@@ -93,8 +93,6 @@ void loop()
     else
       phase1B();
     phaseA = !phaseA;
-
-    digital.pinMode(INL_SOFT_RST, INPUT_PULLUP, FALLING);//pin, mode, type
     
     //get loop period from controller
     period = controller_inst.getPeriodMillis();
@@ -112,6 +110,9 @@ void loop()
       delaytime = period - timespent;
     }
 
+    /*
+    digital.pinMode(INL_SOFT_RST, INPUT_PULLUP, FALLING);//pin, mode, type
+
     //sleep board instead of delay, if not in active state
     if (delaytime > LOOP_PERIOD_ACTIVE_MS) {
       timer.setTimer(delaytime);// milliseconds
@@ -119,6 +120,7 @@ void loop()
       (void)Snooze.deepSleep( config );
     } else {
       delay(delaytime);
-    }
+    }*/
+    delay(delaytime);
   }
 }

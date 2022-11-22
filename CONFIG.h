@@ -45,11 +45,13 @@
 //short P and G to reset board into program mode using push button
 
 /*
- * State machine
+ * Timings
  */
 // Loop periods for the state machine of the controller
-#define LOOP_PERIOD_ACTIVE_MS 200
+#define LOOP_PERIOD_ACTIVE_MS 100
 #define LOOP_PERIOD_STANDBY_MS 2500
+// Cycle time of the OLED screen independent of controller state
+#define LOOP_PERIOD_OLED 2000
 //cell balancing period once the function is called
 //balance for 1 second given that the controller wakes up every second.
 #define BALANCE_CELL_PERIOD_S 5
