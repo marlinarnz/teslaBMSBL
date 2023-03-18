@@ -76,14 +76,14 @@ class Controller {
 
     bool isFaulted;
     bool stickyFaulted;
+    bool chargerInhibit;
+    bool dischargeInhibit;
     float bat12vVoltage;
 
   private:
 
     BMSModuleManager bms;
 
-    bool chargerInhibit;
-    bool dischargeInhibit;
     bool dc2dcON_H;
     bool heatingON_H;
     uint32_t period;

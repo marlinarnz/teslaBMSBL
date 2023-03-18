@@ -10,14 +10,16 @@
 class CanManager {
   public:
     void doCan();
-    CanManager(Controller* c_ptr);
+    CanManager(Controller* c_ptr, int interval);
     ~CanManager();
     void init();
 
   private:
     Controller* controller_inst_ptr;
     bool read();
-    bool writeToOBC();
+    bool writeToOBC_Elcon();
+    bool writeToOBC_MitsubishiOutlander(Controller::ControllerState state);
+    float regulateChargeAmperage(float maxAmp);
     int sendInterval;
     long lastSentTime;
 

@@ -568,21 +568,14 @@ void Controller::setOutput(int pin, int state){
 }
 /////////////////////////////////////////////////
 /// \brief standby state is when the vehicle is not charging and not in run state.
-///
-/// Still, the vehicle or the OBC is switched on (otherwise the BMS is not powered)
 /////////////////////////////////////////////////
 void Controller::standby() {
-  balanceCells();
   setOutput(OUTH_OBC_ON, LOW); // no charging
   setOutput(OUTH_RUN, LOW); // no running
-  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H); // may charge the 12V battery
-  setOutput(OUTH_BAT_HEATER, heatingON_H); // may heat the pack
-  setOutput(OUTL_VALVE_OPEN, heatingON_H);
-  if (heatingON_H) {
-    analogWrite(OUTPWM_PUMP, 255);
-  } else {
-    analogWrite(OUTPWM_PUMP, 0);
-  }
+  setOutput(OUTH_12V_BAT_CHRG, LOW); // no 12V battery charging
+  setOutput(OUTH_BAT_HEATER, LOW); // no heating
+  setOutput(OUTL_VALVE_OPEN, LOW);
+  analogWrite(OUTPWM_PUMP, 0);
 }
 
 /////////////////////////////////////////////////
@@ -607,9 +600,9 @@ void Controller::pre_charge() {
 /////////////////////////////////////////////////
 void Controller::charging() {
   balanceCells();
-  setOutput(OUTH_OBC_ON, chargerInhibit);
+  setOutput(OUTH_OBC_ON, !chargerInhibit);
   setOutput(OUTH_RUN, LOW); // no running
-  setOutput(OUTH_12V_BAT_CHRG, LOW); // 12V charging switched off
+  setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H); // may charge the 12V battery
   setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
   setOutput(OUTL_VALVE_OPEN, LOW);
   analogWrite(OUTPWM_PUMP, (uint8_t) (getCoolingPumpDuty(bms.getHighTemperature()) * 255 ));
@@ -623,9 +616,13 @@ void Controller::post_charge() {
   setOutput(OUTH_OBC_ON, LOW);
   setOutput(OUTH_RUN, LOW);
   setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H);
-  setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
-  setOutput(OUTL_VALVE_OPEN, LOW);
-  analogWrite(OUTPWM_PUMP, 0);
+  setOutput(OUTH_BAT_HEATER, heatingON_H); // may heat the pack
+  setOutput(OUTL_VALVE_OPEN, heatingON_H);
+  if (heatingON_H) {
+    analogWrite(OUTPWM_PUMP, 255);
+  } else {
+    analogWrite(OUTPWM_PUMP, 0);
+  }
 }
 
 /////////////////////////////////////////////////
@@ -633,7 +630,7 @@ void Controller::post_charge() {
 /////////////////////////////////////////////////
 void Controller::run() {
   setOutput(OUTH_OBC_ON, LOW);
-  setOutput(OUTH_RUN, dischargeInhibit);
+  setOutput(OUTH_RUN, !dischargeInhibit);
   setOutput(OUTH_12V_BAT_CHRG, dc2dcON_H);
   setOutput(OUTH_BAT_HEATER, LOW); // switch off battery heating
   setOutput(OUTL_VALVE_OPEN, LOW);

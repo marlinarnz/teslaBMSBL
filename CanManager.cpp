@@ -7,7 +7,8 @@ void CanManager::doCan() {
   // Get the controller state and act, if it's active
   Controller::ControllerState state = controller_inst_ptr->getState();
   if (state != Controller::INIT){
-    bool success = writeToOBC();
+    bool success = false;
+    success &= writeToOBC_MitsubishiOutlander(state);
     success &= read();
     controller_inst_ptr->reportCanStatus(success);
   }
@@ -16,8 +17,8 @@ void CanManager::doCan() {
 /////////////////////////////////////////////////
 /// \brief Constructor sets up the messages
 /////////////////////////////////////////////////
-CanManager::CanManager(Controller* c)
-  : controller_inst_ptr(c), sendInterval(500), lastSentTime(0)
+CanManager::CanManager(Controller* c, int interval)
+  : controller_inst_ptr(c), sendInterval(interval), lastSentTime(0)
 {}
 
 /////////////////////////////////////////////////
@@ -42,9 +43,9 @@ void CanManager::init() {
 }
 
 /////////////////////////////////////////////////
-/// \brief Give commands to an on-board charger via CAN bus. Returns false in case of an error
+/// \brief Give commands to an Elcon-like OBC via CAN bus. Returns false in case of an error
 /////////////////////////////////////////////////
-bool CanManager::writeToOBC() {
+bool CanManager::writeToOBC_Elcon() {
   if (millis() - lastSentTime >= sendInterval) {
     // Instantiate a new message
     CAN_message_t writeMsg;
@@ -79,10 +80,8 @@ bool CanManager::writeToOBC() {
 
     // Calculate the charge amperage for each charger
     float chargeAmperage = MAX_CHARGE_A_SETPOINT / N_CHARGERS;
-    // When the cells come close to max charge, reduce charge amperage
-    if (controller_inst_ptr->getBMSPtr()->getAvgCellVolt() > PRECISION_BALANCE_V_SETPOINT) {
-      chargeAmperage -= (controller_inst_ptr->getBMSPtr()->getAvgCellVolt() - PRECISION_BALANCE_V_SETPOINT) * CHARGE_A_REDUCTION_FACTOR;
-    }
+    // Regulate based on SOC and cell temperatures
+    chargeAmperage = regulateChargeAmperage(chargeAmperage);
     
     // Write the message to the OBC (based on Elcon CAN matrix)
     writeMsg.buf[0] = highByte(uint16_t(chargeVoltage * 10));
@@ -98,6 +97,106 @@ bool CanManager::writeToOBC() {
     return (bool)(Can0.write(writeMsg));
   }
   return true;
+}
+
+/////////////////////////////////////////////////
+/// \brief Give commands to an Mitsubishi Outlander OBC via CAN bus. Returns false in case of an error
+/////////////////////////////////////////////////
+bool CanManager::writeToOBC_MitsubishiOutlander(Controller::ControllerState state) {
+  
+  // Activate the charger
+  if (state == Controller::PRE_CHARGE) {
+    if (millis() - lastSentTime >= sendInterval) {
+      // Instantiate a new message
+      CAN_message_t writeMsg;
+      writeMsg.id = 0x285;
+      writeMsg.len = 8;
+      writeMsg.flags.extended = 0;
+      writeMsg.flags.remote = 0;
+      writeMsg.buf[0] = 0x00;
+      writeMsg.buf[1] = 0x00;
+      writeMsg.buf[2] = 0xB6;
+      writeMsg.buf[3] = 0x00;
+      writeMsg.buf[4] = 0x00;
+      writeMsg.buf[5] = 0x00;
+      writeMsg.buf[6] = 0x00;
+      writeMsg.buf[7] = 0x00;
+    
+      lastSentTime = millis();
+      return (bool)(Can0.write(writeMsg));
+    }
+  }
+
+  // Let it charge
+  else if (state == Controller::CHARGING) {
+    if (millis() - lastSentTime >= sendInterval) {
+      // Instantiate a new message
+      CAN_message_t writeMsg;
+      writeMsg.id = 0x286;
+      writeMsg.len = 8;
+      writeMsg.flags.extended = 0;
+      writeMsg.flags.remote = 0;
+
+      // Get the desired pack voltage
+      float chargeVoltage = MAX_CHARGE_V_SETPOINT * controller_inst_ptr->getBMSPtr()->seriesCells();
+
+      // Calculate the charge amperage for each charger
+      float chargeAmperage = MAX_CHARGE_A_SETPOINT / N_CHARGERS;
+      // The maximum for the Mitsubishi Outlander OBC is 12A
+      if (chargeAmperage > 12) chargeAmperage = 12.0f;
+      // Regulate based on SOC and cell temperatures
+      chargeAmperage = regulateChargeAmperage(chargeAmperage);
+      
+      // Write the message to the OBC
+      writeMsg.buf[0] = highByte(uint16_t(chargeVoltage * 10));
+      writeMsg.buf[1] = lowByte(uint16_t(chargeVoltage * 10));
+      writeMsg.buf[2] = uint8_t(chargeAmperage * 10);
+      writeMsg.buf[3] = 0x37;
+      writeMsg.buf[4] = 0x00;
+      writeMsg.buf[5] = 0x00;
+      writeMsg.buf[6] = 0x0A;
+      writeMsg.buf[7] = 0x00;
+    
+      lastSentTime = millis();
+      return (bool)(Can0.write(writeMsg));
+    }
+  }
+  return true;
+}
+
+/////////////////////////////////////////////////
+/// \brief Reduce the maximum charge amperage if close to maximum charge or high/low temperatures
+/////////////////////////////////////////////////
+float CanManager::regulateChargeAmperage(float maxAmp) {
+
+  // When cells are too cold, reduce charge amperage
+  float lowCellTemp = controller_inst_ptr->getBMSPtr()->getLowTemperature();
+  if (lowCellTemp < HEATING_T_SETPOINT) {
+    maxAmp -= (HEATING_T_SETPOINT - lowCellTemp) * CHARGE_A_REDUCTION_FACTOR_LOWTEMP;
+  }
+
+  // When cells are too hot, reduce charge amperage
+  float highCellTemp = controller_inst_ptr->getBMSPtr()->getHighTemperature();
+  if (highCellTemp > COOLING_HIGHT_SETPOINT) {
+    maxAmp -= (highCellTemp - COOLING_HIGHT_SETPOINT) * CHARGE_A_REDUCTION_FACTOR_HIGHTEMP;
+  }
+
+  // When the cells come close to max charge, reduce charge amperage
+  float avgCellVolt = controller_inst_ptr->getBMSPtr()->getAvgCellVolt();
+  if (avgCellVolt > PRECISION_BALANCE_V_SETPOINT) {
+    maxAmp -= (avgCellVolt - PRECISION_BALANCE_V_SETPOINT) * CHARGE_A_REDUCTION_FACTOR_VOLT;
+  }
+
+  // Charge amperage should not lie below a trickle charge threshold
+  if (maxAmp <= MIN_CHARGE_A_SETPOINT) maxAmp = MIN_CHARGE_A_SETPOINT;
+
+  // Conditions that prevent charging
+  if (controller_inst_ptr->chargerInhibit
+      || avgCellVolt > MAX_CHARGE_V_SETPOINT) {
+    maxAmp = 0;
+  }
+
+  return maxAmp;
 }
 
 /////////////////////////////////////////////////
