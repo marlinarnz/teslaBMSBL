@@ -8,11 +8,11 @@ It supports native Tesla model S/X module drivers, which come with cell-level vo
 
 Some changes are applied in this fork to suit electric car conversion purposes:
 - Implement CAN bus communication with Elcon OBC
-- TODO: Implement CAN bus communication with VCU
+- Implement CAN bus communication with VCU
 - Implement CAN bus fault logic (code B)
 - Add post-charge to the controller states (balancing)
 - Remove auto-charging logic from the controller
-- TODO: Regulate charger amperage based on cell voltage
+- Regulate charger amperage based on cell voltage
 - Replace DC2DC 12V battery charging cycle with on- and off-setpoints
 - Add battery heating logic and valve feedback fault detection
 - TODO: PCB features

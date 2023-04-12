@@ -48,7 +48,7 @@
  * Timings
  */
 // Loop periods for the state machine of the controller
-#define LOOP_PERIOD_ACTIVE_MS 100
+#define LOOP_PERIOD_ACTIVE_MS 50
 #define LOOP_PERIOD_STANDBY_MS 2000
 // Cycle time of the OLED screen independent of controller state
 #define LOOP_PERIOD_OLED 2000

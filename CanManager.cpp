@@ -17,8 +17,10 @@ void CanManager::doCan() {
 /////////////////////////////////////////////////
 /// \brief Constructor sets up the messages
 /////////////////////////////////////////////////
-CanManager::CanManager(Controller* c, int interval)
-  : controller_inst_ptr(c), sendInterval(interval), lastSentTime(0)
+CanManager::CanManager(Controller* c, int intervalVCU, int intervalOBC)
+  : controller_inst_ptr(c),
+    sendIntervalVCU(intervalVCU), lastSentTimeVCU(0),
+    sendIntervalOBC(intervalOBC), lastSentTimeOBC(0)
 {}
 
 /////////////////////////////////////////////////
@@ -43,10 +45,49 @@ void CanManager::init() {
 }
 
 /////////////////////////////////////////////////
+/// \brief Report BMS status to the vehicle
+/////////////////////////////////////////////////
+bool CanManager::writeToVCU() {
+  if (millis() - lastSentTimeVCU >= sendIntervalVCU) {
+    // Instantiate a new message
+    CAN_message_t writeMsg;
+    writeMsg.id = 0x103;
+    writeMsg.len = 8;
+    writeMsg.flags.extended = 0;
+    writeMsg.flags.remote = 0;
+
+    // Write the message to the vehicle
+    writeMsg.buf[0] = highByte(uint16_t(controller_inst_ptr->getBMSPtr()->getPackVoltage() * 10));
+    writeMsg.buf[1] = lowByte(uint16_t(controller_inst_ptr->getBMSPtr()->getPackVoltage() * 10));
+    writeMsg.buf[2] = uint8_t(controller_inst_ptr->getBMSPtr()->getAvgTemperature() + 40);
+    writeMsg.buf[3] = uint8_t(controller_inst_ptr->getBMSPtr()->getHighTemperature() + 40);
+    writeMsg.buf[4] = uint8_t(controller_inst_ptr->getBMSPtr()->getLowTemperature() + 40);
+    writeMsg.buf[5] = highByte(uint8_t(controller_inst_ptr->bat12vVoltage * 10));
+    writeMsg.buf[6] = (uint8_t(controller_inst_ptr->getState()) << 4)
+                      | (uint8_t(controller_inst_ptr->isFaulted) << 3)
+                      | (uint8_t(controller_inst_ptr->stickyFaulted) << 2)
+                      | (uint8_t(controller_inst_ptr->chargerInhibit) << 1)
+                      | uint8_t(controller_inst_ptr->dischargeInhibit);
+    writeMsg.buf[7] = (uint8_t(controller_inst_ptr->sFaultModuleLoop || controller_inst_ptr->sFaultBMSSerialComms) << 7)
+                      | (uint8_t(controller_inst_ptr->sFaultBMSOV) << 6)
+                      | (uint8_t(controller_inst_ptr->sFaultBMSUV) << 5)
+                      | (uint8_t(controller_inst_ptr->sFaultBMSOT) << 4)
+                      | (uint8_t(controller_inst_ptr->sFaultBMSUT) << 3)
+                      | (uint8_t(controller_inst_ptr->sFault12VBatOV || controller_inst_ptr->sFault12VBatUV) << 2)
+                      | (uint8_t(controller_inst_ptr->sFaultWatSen1 || controller_inst_ptr->sFaultWatSen2) << 1)
+                      | uint8_t(controller_inst_ptr->sFaultHeatLoop);
+  
+    lastSentTimeVCU = millis();
+    return (bool)(Can0.write(writeMsg));
+  }
+  return true;
+}
+
+/////////////////////////////////////////////////
 /// \brief Give commands to an Elcon-like OBC via CAN bus. Returns false in case of an error
 /////////////////////////////////////////////////
 bool CanManager::writeToOBC_Elcon() {
-  if (millis() - lastSentTime >= sendInterval) {
+  if (millis() - lastSentTimeOBC >= sendIntervalOBC) {
     // Instantiate a new message
     CAN_message_t writeMsg;
     writeMsg.id = 0x1806E5F4;
@@ -93,7 +134,7 @@ bool CanManager::writeToOBC_Elcon() {
     writeMsg.buf[6] = 0x00;
     writeMsg.buf[7] = 0x00;
   
-    lastSentTime = millis();
+    lastSentTimeOBC = millis();
     return (bool)(Can0.write(writeMsg));
   }
   return true;
@@ -106,7 +147,7 @@ bool CanManager::writeToOBC_MitsubishiOutlander(Controller::ControllerState stat
   
   // Activate the charger
   if (state == Controller::PRE_CHARGE) {
-    if (millis() - lastSentTime >= sendInterval) {
+    if (millis() - lastSentTimeOBC >= sendIntervalOBC) {
       // Instantiate a new message
       CAN_message_t writeMsg;
       writeMsg.id = 0x285;
@@ -122,14 +163,14 @@ bool CanManager::writeToOBC_MitsubishiOutlander(Controller::ControllerState stat
       writeMsg.buf[6] = 0x00;
       writeMsg.buf[7] = 0x00;
     
-      lastSentTime = millis();
+      lastSentTimeOBC = millis();
       return (bool)(Can0.write(writeMsg));
     }
   }
 
   // Let it charge
   else if (state == Controller::CHARGING) {
-    if (millis() - lastSentTime >= sendInterval) {
+    if (millis() - lastSentTimeOBC >= sendIntervalOBC) {
       // Instantiate a new message
       CAN_message_t writeMsg;
       writeMsg.id = 0x286;
@@ -157,7 +198,7 @@ bool CanManager::writeToOBC_MitsubishiOutlander(Controller::ControllerState stat
       writeMsg.buf[6] = 0x0A;
       writeMsg.buf[7] = 0x00;
     
-      lastSentTime = millis();
+      lastSentTimeOBC = millis();
       return (bool)(Can0.write(writeMsg));
     }
   }
