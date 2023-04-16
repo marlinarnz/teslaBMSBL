@@ -6,7 +6,7 @@
 void Controller::doController() {
   // For statecycling in test mode only: count ticks
   static int ticks = 0;
-  const int stateticks = 4;
+  const int stateticks = int(2000 / LOOP_PERIOD_ACTIVE_MS);
 
   // 12V battery monitoring
   bat12vVoltage = (float)analogRead(INA_12V_BAT) / BAT12V_SCALING_DIVISOR ;
@@ -135,13 +135,14 @@ void Controller::doController() {
       break;
 
     case STANDBY:
-      //prevents sleeping if the console is connected or if within 1 minute of a hard reset.
+      /*//prevents sleeping if the console is connected or if within 1 minute of a hard reset.
       //The teensy wont let reprogram if it slept once so this allows reprograming within 1 minute.
       if (SERIALCONSOLE || millis() < 60000) {
         period = LOOP_PERIOD_ACTIVE_MS;
       } else {
         period = LOOP_PERIOD_STANDBY_MS;
-      }
+      }*/
+      period = LOOP_PERIOD_ACTIVE_MS;
       standby();
       break;
 
@@ -364,8 +365,9 @@ void Controller::syncModuleDataObjects() {
   }
 
   // Cumulative fault stati
-  chargerInhibit = faultModuleLoop || faultCANbus || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2;
+  chargerInhibit = faultModuleLoop || faultBMSSerialComms || faultBMSOV || faultBMSUT || faultBMSOT || faultWatSen1 || faultWatSen2;
   chargerInhibit |= bms.getHighCellVolt() >= MAX_CHARGE_V_SETPOINT;
+  if (COMMUNICATE_VIA_CAN) chargerInhibit |= faultCANbus;
   dischargeInhibit = faultModuleLoop || faultCANbus || faultBMSSerialComms || faultBMSOT || faultBMSUV || faultWatSen1 || faultWatSen2;
   isFaulted = chargerInhibit || dischargeInhibit || fault12VBatOV || fault12VBatUV || faultHeatLoop;
 

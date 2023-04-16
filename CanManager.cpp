@@ -7,8 +7,9 @@ void CanManager::doCan() {
   // Get the controller state and act, if it's active
   Controller::ControllerState state = controller_inst_ptr->getState();
   if (state != Controller::INIT){
-    bool success = false;
+    bool success = true;
     success &= writeToOBC_MitsubishiOutlander(state);
+    success &= writeToVCU();
     success &= read();
     controller_inst_ptr->reportCanStatus(success);
   }
@@ -40,7 +41,9 @@ void CanManager::init() {
   mask.rtr = 0;
   mask.ext = 1;
   mask.id = 0;
+  Can0.setNumTxBoxes(4);
   Can0.begin(CANBUS_SPEED);
+  Can0.startStats();
   LOG_INFO("Started CAN bus communication");
 }
 
@@ -68,14 +71,14 @@ bool CanManager::writeToVCU() {
                       | (uint8_t(controller_inst_ptr->stickyFaulted) << 2)
                       | (uint8_t(controller_inst_ptr->chargerInhibit) << 1)
                       | uint8_t(controller_inst_ptr->dischargeInhibit);
-    writeMsg.buf[7] = (uint8_t(controller_inst_ptr->sFaultModuleLoop || controller_inst_ptr->sFaultBMSSerialComms) << 7)
-                      | (uint8_t(controller_inst_ptr->sFaultBMSOV) << 6)
-                      | (uint8_t(controller_inst_ptr->sFaultBMSUV) << 5)
-                      | (uint8_t(controller_inst_ptr->sFaultBMSOT) << 4)
-                      | (uint8_t(controller_inst_ptr->sFaultBMSUT) << 3)
-                      | (uint8_t(controller_inst_ptr->sFault12VBatOV || controller_inst_ptr->sFault12VBatUV) << 2)
-                      | (uint8_t(controller_inst_ptr->sFaultWatSen1 || controller_inst_ptr->sFaultWatSen2) << 1)
-                      | uint8_t(controller_inst_ptr->sFaultHeatLoop);
+    writeMsg.buf[7] = (uint8_t(controller_inst_ptr->faultModuleLoop || controller_inst_ptr->faultBMSSerialComms) << 7)
+                      | (uint8_t(controller_inst_ptr->faultBMSOV) << 6)
+                      | (uint8_t(controller_inst_ptr->faultBMSUV) << 5)
+                      | (uint8_t(controller_inst_ptr->faultBMSOT) << 4)
+                      | (uint8_t(controller_inst_ptr->faultBMSUT) << 3)
+                      | (uint8_t(controller_inst_ptr->fault12VBatOV || controller_inst_ptr->fault12VBatUV) << 2)
+                      | (uint8_t(controller_inst_ptr->faultWatSen1 || controller_inst_ptr->faultWatSen2) << 1)
+                      | uint8_t(controller_inst_ptr->faultHeatLoop);
   
     lastSentTimeVCU = millis();
     return (bool)(Can0.write(writeMsg));
@@ -263,6 +266,13 @@ bool CanManager::read() {
     } else {
       // A message is available, but couldn't be read
       LOG_ERROR("Error while trying to read the CAN bus");
+      CAN_stats_t stats = Can0.getStats();
+      if (stats.enabled) {
+        if (stats.ringRxFramesLost > 0) {
+          LOG_WARN("Lost frames on the CAN bus since last error");
+          Can0.clearStats();
+        }
+      }
       return false;
     }
   }
